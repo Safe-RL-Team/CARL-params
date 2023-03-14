@@ -196,6 +196,13 @@ class MBExperiment:
                 self.writer.add_scalar('%s-catastrophe-loss' % print_str,
                                        self.policy.catastrophe_loss, i)
 
+            # new
+            # add num catastrophes?
+            num_catastrophes = sum([1 if sample["catastrophe"] else 0 for sample in samples])
+            self.writer.add_scalar('%s-num-catastrophes' % print_str,
+                                   num_catastrophes,
+                                   i)
+
     def run_test_evals(self, adaptation_iteration):
         print("Beginning evaluation rollouts.")
         if self.test_percentile is not None:
@@ -222,7 +229,7 @@ class MBExperiment:
             ))
         if self.ntest_rollouts > 0:
             num_catastrophes = sum([1 if sample["catastrophe"] else 0 for sample in samples])
-            self.writer.add_scalar('num-catastrophes',
+            self.writer.add_scalar('test-num-catastrophes',
                                    num_catastrophes,
                                    adaptation_iteration)
             mean_test_return = float(sum([sample["reward_sum"] for sample in samples])) / float(len(samples))

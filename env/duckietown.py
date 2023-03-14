@@ -1,4 +1,5 @@
-from gym_duckietown.envs.duckietown_env import DuckietownNav
+#from gym_duckietown.envs.duckietown_env import DuckietownNav
+from gym_duckietown.gym_duckietown.envs.duckietown_env import DuckietownNav
 from gym import spaces
 from gym.utils import EzPickle
 import numpy as np

@@ -209,16 +209,25 @@ class MPC:
                 state_targ = train_targ[..., :-1]
                 catastrophe_targ = train_targ[..., -1:]
                 mean, logvar, catastrophe_prob = self.model(train_in, ret_logvar=True)
+                # new
+                print(f'train: len catastrophe_prob is {len(catastrophe_prob)}')
                 inv_var = torch.exp(-logvar)
                 state_loss = ((mean - state_targ) ** 2) * inv_var + logvar
                 state_loss = state_loss.mean(-1).mean(-1).sum()
                 if not self.no_catastrophe_pred:
                     num_catastrophes = torch.sum(catastrophe_targ == 1)
+                    # new
+                    print(f'train: num_catastrophes is {num_catastrophes}')
                     if num_catastrophes == 0:
                         pos_weight = 0 * catastrophe_targ[0][0]
                     else:
                         pos_weight = (catastrophe_targ.numel() - num_catastrophes).to(dtype=torch.float) / num_catastrophes
+                    # new
+                    print(f'train: number of envs?? with catastrophe: {catastrophe_targ.numel()}')
+                    print(f'train: scaling for catastrophe cost is {pos_weight}')
                     catastrophe_loss = torch.nn.BCEWithLogitsLoss(pos_weight)(catastrophe_prob, catastrophe_targ)
+                    # new
+                    print(f'train: catastrophe loss is {catastrophe_loss}')
                     loss += catastrophe_loss
                 loss += state_loss
                 self.model.optim.zero_grad()
@@ -343,6 +352,8 @@ class MPC:
             cost = self.obs_cost_fn(next_obs) + self.ac_cost_fn(cur_acs)
             if self.mode == 'test' and not self.no_catastrophe_pred: #use catastrophe prediction during adaptation
                 cost = self.catastrophe_cost_fn(next_obs, cost, self.percentile)
+                # new
+                print(f'_compile_cost: cost is {cost}')
             cost = cost.view(-1, self.npart)
             costs += cost
             cur_obs = self.obs_postproc2(next_obs)

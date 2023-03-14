@@ -107,9 +107,11 @@ class CartPoleConfigModule:
         return model
 
     @staticmethod
-    def catastrophe_cost_fn(obs, cost, percentile):
+    def catastrophe_cost_fn(obs, cost, percentile): # scaled g(A)
         catastrophe_mask = obs[..., -1] > percentile / 100
         cost[catastrophe_mask] += CONFIG_MODULE.CATASTROPHE_COST
+        # new
+        print(f'cartpole: catastrophe_cost_fn: cost is {cost}')
         return cost
 
 CONFIG_MODULE = CartPoleConfigModule
