@@ -13,7 +13,7 @@ This project was created as part of the course “Advanced Topics in Reinforceme
 
 
 ## Installation
-Clone this repository with `git clone https://github.com/Safe-RL-Team/CARL_params.git`.
+Clone this repository with `git clone https://github.com/Safe-RL-Team/CARL-params.git`.
 In order to experiment on MuJoco environments, you must have MuJoco 200 installed with an appropriate MuJuco license linked.
 See here to download and setup MuJoco 200: [mujoco](https://www.roboti.us/index.html). On Ubuntu, we had to install some extra packages first: `sudo apt install -y libosmesa6-dev libgl1-mesa-glx libglfw3 patchelf`.
 
