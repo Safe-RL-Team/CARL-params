@@ -2,8 +2,9 @@
 
 <figure>
   <p style="text-align:center;">
-  <img src="https://Safe-RL-Team.github.io/CARL_params/README_assets/CARLreward.png" alt="Figure1" class = "center" width = "150" height = "150">
-  <img src="https://Safe-RL-Team.github.io/CARL_params/README_assets/CARLstate.png" alt="Figure1" class = "center" width = "150" height = "150">
+  
+  <img src="/README_assets/CARLreward.jpg" alt="Figure1" class = "center" width = "200" height = "200">
+  <img src="/README_assets/CARLstate.jpg" alt="Figure2" class = "center" width = "200" height = "200">
   </p>
 </figure>
 
