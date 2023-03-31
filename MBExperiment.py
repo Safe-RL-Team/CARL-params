@@ -18,7 +18,9 @@ import numpy as np
 from gym import wrappers
 import torch
 
-TORCH_DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+TORCH_DEVICE = (
+    torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+)
 
 
 class MBExperiment:
@@ -31,6 +33,7 @@ class MBExperiment:
                     .env (gym.env): Environment for this experiment.
                     .task_hor (int): Task horizon.
                     .test_percentile (float): Risk-aversion percentile used for testing.
+                    .penalty_scale (float): Catastrophic state risk-aversion scaling for penalty, new parameter
                     .record_video (bool): Whether to record training/adaptation iterations.
 
                 .exp_cfg:
@@ -57,22 +60,32 @@ class MBExperiment:
         # Assert True arguments that we currently do not support
         assert params.sim_cfg.get("stochastic", False) == False
 
-        self.env = get_required_argument(params.sim_cfg, "env", "Must provide environment.")
-        self.task_hor = get_required_argument(params.sim_cfg, "task_hor", "Must provide task horizon.")
+        self.env = get_required_argument(
+            params.sim_cfg, "env", "Must provide environment."
+        )
+        self.task_hor = get_required_argument(
+            params.sim_cfg, "task_hor", "Must provide task horizon."
+        )
         self.ntrain_iters = get_required_argument(
-            params.exp_cfg, "ntrain_iters", "Must provide number of training iterations."
+            params.exp_cfg,
+            "ntrain_iters",
+            "Must provide number of training iterations.",
         )
         self.test_percentile = params.sim_cfg.test_percentile
+        # new: penalty scale
+        self.penalty_scale = params.sim_cfg.penalty_scale
         self.nrollouts_per_iter = params.exp_cfg.get("nrollouts_per_iter", 1)
         self.ninit_rollouts = params.exp_cfg.get("ninit_rollouts", 1)
         self.ntest_rollouts = params.exp_cfg.get("ntest_rollouts", 1)
         self.nadapt_iters = params.exp_cfg.get("nadapt_iters", 0)
-        self.policy = get_required_argument(params.exp_cfg, "policy", "Must provide a policy.")
+        self.policy = get_required_argument(
+            params.exp_cfg, "policy", "Must provide a policy."
+        )
         self.continue_train = params.exp_cfg.get("continue_train", False)
         self.test_domain = params.exp_cfg.get("test_domain", None)
         self.nrollout_per_itr = params.exp_cfg.get("nrollout_per_itr", 1)
         self.start_epoch = params.exp_cfg.get("start_epoch", 0)
-        
+
         self.training_percentile = self.policy.percentile
 
         if self.continue_train:
@@ -81,15 +94,19 @@ class MBExperiment:
             self.policy.prev_sol = np.load(os.path.join(self.logdir, "prev_sol.npy"))
             self.policy.init_var = np.load(os.path.join(self.logdir, "init_var.npy"))
             self.policy.train_in = np.load(os.path.join(self.logdir, "train_in.npy"))
-            self.policy.train_targs = np.load(os.path.join(self.logdir, "train_targs.npy"))
+            self.policy.train_targs = np.load(
+                os.path.join(self.logdir, "train_targs.npy")
+            )
         self.logdir = os.path.join(
-            get_required_argument(params.log_cfg, "logdir", "Must provide log parent directory."),
-            strftime("%Y-%m-%d--%H-%M-%S", localtime())
+            get_required_argument(
+                params.log_cfg, "logdir", "Must provide log parent directory."
+            ),
+            strftime("%Y-%m-%d--%H-%M-%S", localtime()),
         )
         self.suffix = params.log_cfg.get("suffix", None)
         if self.suffix is not None:
-            self.logdir = self.logdir + '-' + self.suffix
-        self.writer = SummaryWriter(self.logdir + '-tboard')
+            self.logdir = self.logdir + "-" + self.suffix
+        self.writer = SummaryWriter(self.logdir + "-tboard")
 
         self.record_video = params.sim_cfg.get("record_video", False)
         if self.test_domain is not None:
@@ -97,8 +114,7 @@ class MBExperiment:
             print("Setting test domain to: %0.3f" % self.env.test_domain)
 
     def run_experiment(self):
-        """Perform experiment.
-        """
+        """Perform experiment."""
         os.makedirs(self.logdir, exist_ok=True)
 
         # Train with random data first
@@ -106,10 +122,14 @@ class MBExperiment:
         self.agent = Agent()
         for i in range(self.ninit_rollouts):
             if self.record_video:
-                self.record_env = wrappers.Monitor(self.env, "%s/init_iter_%d" % (self.logdir, i), force=True)
+                self.record_env = wrappers.Monitor(
+                    self.env, "%s/init_iter_%d" % (self.logdir, i), force=True
+                )
             samples.append(
                 self.agent.sample(
-                    self.task_hor, self.policy, record=False,
+                    self.task_hor,
+                    self.policy,
+                    record=False,
                     env=self.env,
                 )
             )
@@ -128,16 +148,18 @@ class MBExperiment:
         old_ac_buf = self.policy.ac_buf
         old_prev_sol = self.policy.prev_sol
         old_init_var = self.policy.init_var
-        torch.save(self.policy.model.state_dict(),
-                os.path.join(self.logdir, 'weights'))
+        torch.save(self.policy.model.state_dict(), os.path.join(self.logdir, "weights"))
         np.save(os.path.join(self.logdir, "ac_buf.npy"), old_ac_buf)
         np.save(os.path.join(self.logdir, "prev_sol.npy"), old_prev_sol)
         np.save(os.path.join(self.logdir, "init_var.npy"), old_init_var)
         np.save(os.path.join(self.logdir, "train_in.npy"), old_train_in)
         np.save(os.path.join(self.logdir, "train_targs.npy"), old_train_targs)
-        
+
         self.run_training_iters(adaptation=True)
         self.run_test_evals(self.nadapt_iters)
+
+        # new for looping over caution parameters
+        return self.logdir
 
     def run_training_iters(self, adaptation):
         max_return = -float("inf")
@@ -152,36 +174,56 @@ class MBExperiment:
         for i in trange(*iteration_range):
             if i % 2 == 0 and adaptation:
                 self.run_test_evals(i)
-            print("####################################################################")
+            print(
+                "####################################################################"
+            )
             print("Starting training on " + print_str + " env iteration %d" % (i + 1))
 
             samples = []
             self.policy.clear_stats()
+            # TODO: check repetitions???
             self.policy.percentile = percentile
+            # new
+            self.policy.penalty_scale = self.penalty_scale
             for j in range(max(self.nrollout_per_itr, self.nrollouts_per_iter)):
                 self.policy.percentile = percentile
+                # new
+                self.policy.penalty_scale = self.penalty_scale
                 if self.record_video:
-                    self.env = wrappers.Monitor(self.env, "%s/%s_iter_%d_percentile/percentile_%d_rollout_%d" % (self.logdir, print_str, i, self.policy.percentile, j), force=True)
+                    self.env = wrappers.Monitor(
+                        self.env,
+                        "%s/%s_iter_%d_percentile/percentile_%d_rollout_%d"
+                        % (self.logdir, print_str, i, self.policy.percentile, j),
+                        force=True,
+                    )
                 self.policy.logdir = "%s/%s_iter_%d" % (self.logdir, print_str, i)
                 samples.append(
                     self.agent.sample(
-                        self.task_hor, self.policy, record=self.record_video and adaptation,
-                        env=self.env, mode='test' if adaptation else 'train',
+                        self.task_hor,
+                        self.policy,
+                        record=self.record_video and adaptation,
+                        env=self.env,
+                        mode="test" if adaptation else "train",
                     )
                 )
             if self.record_video:
                 self.env = self.env.env
             eval_samples = samples
-            self.writer.add_scalar('mean-' + print_str + '-return',
-                                   float(sum([sample["reward_sum"] for sample in eval_samples])) / float(len(eval_samples)),
-                                   i)
-            max_return = max(float(sum([sample["reward_sum"] for sample in eval_samples])) / float(len(eval_samples)), max_return)
-            self.writer.add_scalar('max-' + print_str + '-return',
-                                   max_return,
-                                   i)
+            self.writer.add_scalar(
+                "mean-" + print_str + "-return",
+                float(sum([sample["reward_sum"] for sample in eval_samples]))
+                / float(len(eval_samples)),
+                i,
+            )
+            max_return = max(
+                float(sum([sample["reward_sum"] for sample in eval_samples]))
+                / float(len(eval_samples)),
+                max_return,
+            )
+            self.writer.add_scalar("max-" + print_str + "-return", max_return, i)
             rewards = [sample["reward_sum"] for sample in eval_samples]
             print("Rewards obtained:", rewards)
-            samples = samples[:self.nrollouts_per_iter]
+            samples = samples[: self.nrollouts_per_iter]
 
             self.policy.train(
                 [sample["obs"] for sample in samples],
@@ -190,18 +232,20 @@ class MBExperiment:
             )
             if self.policy.mse_loss is not None:
                 mean_loss = np.mean(self.policy.mse_loss)
-                self.writer.add_scalar('%s-mean-loss' % print_str,
-                                       mean_loss, i)
+                self.writer.add_scalar("%s-mean-loss" % print_str, mean_loss, i)
             if self.policy.catastrophe_loss is not None:
-                self.writer.add_scalar('%s-catastrophe-loss' % print_str,
-                                       self.policy.catastrophe_loss, i)
+                self.writer.add_scalar(
+                    "%s-catastrophe-loss" % print_str, self.policy.catastrophe_loss, i
+                )
 
             # new
             # add num catastrophes?
-            num_catastrophes = sum([1 if sample["catastrophe"] else 0 for sample in samples])
-            self.writer.add_scalar('%s-num-catastrophes' % print_str,
-                                   num_catastrophes,
-                                   i)
+            num_catastrophes = sum(
+                [1 if sample["catastrophe"] else 0 for sample in samples]
+            )
+            self.writer.add_scalar(
+                "%s-num-catastrophes" % print_str, num_catastrophes, i
+            )
 
     def run_test_evals(self, adaptation_iteration):
         print("Beginning evaluation rollouts.")
@@ -210,29 +254,40 @@ class MBExperiment:
         samples = []
         for i in range(self.ntest_rollouts):
             if self.record_video:
-                self.env = wrappers.Monitor(self.env, "%s/test_eval_%d" % (self.logdir, i), force=True)
+                self.env = wrappers.Monitor(
+                    self.env, "%s/test_eval_%d" % (self.logdir, i), force=True
+                )
             if not hasattr(self, "agent"):
                 self.agent = Agent()
             self.policy.clear_stats()
             cur_sample = self.agent.sample(
-                    self.task_hor, self.policy, record=self.record_video,
-                    env=self.env, mode='test',
-                    )
+                self.task_hor,
+                self.policy,
+                record=self.record_video,
+                env=self.env,
+                mode="test",
+            )
             if self.record_video:
                 self.env = self.env.env
             samples.append(cur_sample)
-            mean_test_return = float(sum([cur_sample["reward_sum"] for sample in cur_sample])) / float(len(cur_sample))
-            print("Evaluation mean-return (rollout number %d out of %d): %f" % (
-                i,
-                self.ntest_rollouts,
-                mean_test_return
-            ))
+            mean_test_return = float(
+                sum([cur_sample["reward_sum"] for sample in cur_sample])
+            ) / float(len(cur_sample))
+            print(
+                "Evaluation mean-return (rollout number %d out of %d): %f"
+                % (i, self.ntest_rollouts, mean_test_return)
+            )
         if self.ntest_rollouts > 0:
-            num_catastrophes = sum([1 if sample["catastrophe"] else 0 for sample in samples])
-            self.writer.add_scalar('test-num-catastrophes',
-                                   num_catastrophes,
-                                   adaptation_iteration)
-            mean_test_return = float(sum([sample["reward_sum"] for sample in samples])) / float(len(samples))
-            self.writer.add_scalar('mean-test-return:',
-                                   mean_test_return, adaptation_iteration)
+            num_catastrophes = sum(
+                [1 if sample["catastrophe"] else 0 for sample in samples]
+            )
+            self.writer.add_scalar(
+                "test-num-catastrophes", num_catastrophes, adaptation_iteration
+            )
+            mean_test_return = float(
+                sum([sample["reward_sum"] for sample in samples])
+            ) / float(len(samples))
+            self.writer.add_scalar(
+                "mean-test-return:", mean_test_return, adaptation_iteration
+            )
         self.writer.close()

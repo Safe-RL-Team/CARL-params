@@ -15,6 +15,7 @@ def create_config(args):
                 stochastic=make_bool,
                 noise_std=float,
                 test_percentile=int,
+                penalty_scale=float,  # new parameter
                 record_video=bool
             ),
             exp_cfg=DotMap(
@@ -64,6 +65,8 @@ def create_config(args):
 
     _create_exp_config(cfg.exp_cfg, cfg_module, type_map, args)
     cfg.exp_cfg.sim_cfg.test_percentile = args.test_percentile
+    # new: penalty scale
+    cfg.exp_cfg.sim_cfg.penalty_scale = args.penalty_scale
     cfg.exp_cfg.sim_cfg.record_video = args.record_video
 
     _create_ctrl_config(cfg.ctrl_cfg, cfg_module, args.ctrl_type, ctrl_args, type_map, has_been_trained, args.optimizer, args.percentile, args.num_nets, args.no_catastrophe_pred)

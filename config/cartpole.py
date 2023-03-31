@@ -9,7 +9,10 @@ import gym
 import numpy as np
 import torch
 
-TORCH_DEVICE = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+TORCH_DEVICE = (
+    torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+)
+
 
 class CartPoleConfigModule:
     ENV_NAME = "MBRLCartPole-v0"
@@ -34,33 +37,49 @@ class CartPoleConfigModule:
         self.ENV = gym.make(self.ENV_NAME)
         self.NN_TRAIN_CFG = {"epochs": 5}
         self.OPT_CFG = {
-            "CEM": {
-                "popsize": 400,
-                "num_elites": 40,
-                "max_iters": 5,
-                "alpha": 0.1
-            }
+            "CEM": {"popsize": 400, "num_elites": 40, "max_iters": 5, "alpha": 0.1}
         }
 
     @staticmethod
     def obs_preproc(obs):
-        #.... pendulum_length, catastrophe
+        # .... pendulum_length, catastrophe
         if isinstance(obs, np.ndarray):
-            return np.concatenate([np.sin(obs[:, 1:2]), np.cos(obs[:, 1:2]), obs[:, :1], obs[:, 2:-2]], axis=1)
+            return np.concatenate(
+                [np.sin(obs[:, 1:2]), np.cos(obs[:, 1:2]), obs[:, :1], obs[:, 2:-2]],
+                axis=1,
+            )
         else:
-            return torch.cat([torch.sin(obs[:, 1:2]), torch.cos(obs[:, 1:2]), obs[:, :1], obs[:, 2:-2]], dim=1)
+            return torch.cat(
+                [
+                    torch.sin(obs[:, 1:2]),
+                    torch.cos(obs[:, 1:2]),
+                    obs[:, :1],
+                    obs[:, 2:-2],
+                ],
+                dim=1,
+            )
 
     @staticmethod
     def obs_postproc(obs, pred):
-        return torch.cat((obs[..., :-2] + pred[..., :-1], obs[..., -2:-1],
-                          CONFIG_MODULE.CATASTROPHE_SIGMOID(pred[..., -1:])), dim=-1)
+        return torch.cat(
+            (
+                obs[..., :-2] + pred[..., :-1],
+                obs[..., -2:-1],
+                CONFIG_MODULE.CATASTROPHE_SIGMOID(pred[..., -1:]),
+            ),
+            dim=-1,
+        )
 
     @staticmethod
-    def targ_proc(obs, next_obs):   # This is to undo obs_postproc
+    def targ_proc(obs, next_obs):  # This is to undo obs_postproc
         if isinstance(obs, np.ndarray):
-            return np.concatenate([next_obs[..., :-2] - obs[..., :-2], next_obs[..., -1:]], axis=-1)
+            return np.concatenate(
+                [next_obs[..., :-2] - obs[..., :-2], next_obs[..., -1:]], axis=-1
+            )
         elif isinstance(obs, torch.Tensor):
-            return torch.cat([next_obs[..., :-2] - obs[..., :-2], next_obs[..., -1:]], dim=-1)
+            return torch.cat(
+                [next_obs[..., :-2] - obs[..., :-2], next_obs[..., -1:]], dim=-1
+            )
 
     @staticmethod
     def obs_cost_fn(obs):
@@ -68,50 +87,61 @@ class CartPoleConfigModule:
 
         ee_pos -= ideal_pos
 
-        ee_pos = ee_pos ** 2
+        ee_pos = ee_pos**2
 
-        ee_pos = - ee_pos.sum(dim=1)
+        ee_pos = -ee_pos.sum(dim=1)
 
         pendulum_length = obs[:, -2:-1].squeeze(-1)
 
-        return - (ee_pos / (pendulum_length ** 2)).exp()
+        return -(ee_pos / (pendulum_length**2)).exp()
 
     @staticmethod
     def ac_cost_fn(acs):
-        return 0.01 * (acs ** 2).sum(dim=1)
+        return 0.01 * (acs**2).sum(dim=1)
 
     @staticmethod
     def _get_ee_pos(obs):
         x0, theta, pendulum_length = obs[:, :1], obs[:, 1:2], obs[:, -2:-1]
-        ee_pos = torch.cat([x0 + pendulum_length * torch.sin(theta), pendulum_length * torch.cos(theta)], dim=1)
-        ideal_pos = torch.cat((torch.zeros_like(pendulum_length), pendulum_length), dim=-1)
+        ee_pos = torch.cat(
+            [
+                x0 + pendulum_length * torch.sin(theta),
+                pendulum_length * torch.cos(theta),
+            ],
+            dim=1,
+        )
+        ideal_pos = torch.cat(
+            (torch.zeros_like(pendulum_length), pendulum_length), dim=-1
+        )
         return ee_pos, ideal_pos
 
     def nn_constructor(self, model_init_cfg):
 
-        ensemble_size = get_required_argument(model_init_cfg, "num_nets", "Must provide ensemble size")
+        ensemble_size = get_required_argument(
+            model_init_cfg, "num_nets", "Must provide ensemble size"
+        )
 
         load_model = model_init_cfg.get("load_model", False)
 
-        assert load_model is False, 'Has yet to support loading model'
+        assert load_model is False, "Has yet to support loading model"
 
-        model = EnsembleModel(ensemble_size,
-                        in_features=self.MODEL_IN,
-                        out_features=self.MODEL_OUT * 2 + 1, 
-                        hidden_size=self.MODEL_HIDDEN_SIZE,
-                        num_layers=len(self.MODEL_WEIGHT_DECAYS),
-                        weight_decays=self.MODEL_WEIGHT_DECAYS).to(TORCH_DEVICE)
+        model = EnsembleModel(
+            ensemble_size,
+            in_features=self.MODEL_IN,
+            out_features=self.MODEL_OUT * 2 + 1,
+            hidden_size=self.MODEL_HIDDEN_SIZE,
+            num_layers=len(self.MODEL_WEIGHT_DECAYS),
+            weight_decays=self.MODEL_WEIGHT_DECAYS,
+        ).to(TORCH_DEVICE)
 
         model.optim = torch.optim.Adam(model.parameters(), lr=0.001)
 
         return model
 
     @staticmethod
-    def catastrophe_cost_fn(obs, cost, percentile): # scaled g(A)
-        catastrophe_mask = obs[..., -1] > percentile / 100
-        cost[catastrophe_mask] += CONFIG_MODULE.CATASTROPHE_COST
-        # new
-        print(f'cartpole: catastrophe_cost_fn: cost is {cost}')
+    def catastrophe_cost_fn(obs, cost, beta, penalty_scale):  # new: penalty_scale represents lambda_2
+        catastrophe_mask = obs[..., -1] > beta / 100
+        cost[catastrophe_mask] += penalty_scale * CONFIG_MODULE.CATASTROPHE_COST
         return cost
+
 
 CONFIG_MODULE = CartPoleConfigModule
